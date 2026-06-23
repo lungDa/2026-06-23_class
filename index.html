@@ -31,13 +31,13 @@
         /* 雙播放器切換容器 */
         .player-container { margin-top: 10px; min-height: 60px; position: relative; }
         
-        /* 💡 修正手機版自動播放關鍵：不使用 display:none，改用隱形並釋放高度，防止 AudioContext 被手機系統強制銷毀 */
+        /* 💡 終極隱形機制：不縮小尺寸（防止 SoundCloud Canvas 崩潰），直接丟到螢幕外面 */
         .hidden-player {
             position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
             opacity: 0 !important;
             pointer-events: none !important;
-            height: 0px !important;
-            overflow: hidden !important;
         }
         
         iframe { border: none; width: 100%; height: 130px; transition: opacity 0.3s; }
@@ -113,7 +113,7 @@
                     'controls': 1, 
                     'rel': 0,
                     'enablejsapi': 1,
-                    'origin': window.location.origin // 💡 綁定來源網域
+                    'origin': window.location.origin
                 },
                 events: {
                     'onStateChange': onYTPlayerStateChange
@@ -163,13 +163,12 @@
             }
         }
 
-        // 核心切換：改用 CSS 類別控制顯示
+        // 核心顯示切換
         function switchPlayerUI(type) {
             const scElement = document.getElementById('sc-widget');
             const ytElement = document.getElementById('yt-player');
             const streamElement = document.getElementById('stream-player');
             
-            // 全部先隱形 (但不銷毀)
             scElement.classList.add('hidden-player');
             if (ytElement) ytElement.classList.add('hidden-player');
             streamElement.classList.add('hidden-player');
@@ -178,7 +177,6 @@
             try { scWidget.pause(); } catch(e){}
             try { streamElement.pause(); } catch(e){}
             
-            // 亮起特定播放器
             if (type === 'SC') {
                 scElement.classList.remove('hidden-player');
             } else if (type === 'YT') {
@@ -237,7 +235,6 @@
                     show_user: false,
                     show_reposts: false
                 });
-                // 💡 針對手機端優化：在換曲時主動呼叫 play 戳醒
                 if (shouldPlay) {
                     setTimeout(() => { scWidget.play(); }, 500);
                 }
@@ -268,6 +265,7 @@
             });
         }
 
+        // 💡 以下為先前被切掉的完整搜尋與分頁邏輯
         async function searchSongs() {
             const q = document.getElementById('search-input').value;
             if (!q) return;
@@ -279,4 +277,67 @@
                 const data = await res.json();
                 if (data && data.error) { resBox.innerHTML = `<p style='color:red;'>${data.error}</p>`; return; }
                 searchResults = Array.isArray(data) ? data : [];
-                searchPage =
+                searchPage = 0;
+                renderSearchResults();
+            } catch (e) { resBox.innerHTML = "<p style='color:red;'>網路連線異常。</p>"; }
+        }
+
+        function renderSearchResults() {
+            const resBox = document.getElementById('search-results');
+            resBox.innerHTML = "";
+            if (searchResults.length === 0) { resBox.innerHTML = "<p>沒有找到相關歌曲。</p>"; return; }
+
+            const totalPages = Math.ceil(searchResults.length / ITEMS_PER_PAGE);
+            const start = searchPage * ITEMS_PER_PAGE;
+            const pageItems = searchResults.slice(start, start + ITEMS_PER_PAGE);
+
+            document.getElementById('search-page-title').innerText = `搜尋結果 (共 ${searchResults.length} 筆)`;
+            document.getElementById('page-info').innerText = `第 ${searchPage + 1} / ${totalPages} 頁`;
+            document.getElementById('btn-prev').disabled = (searchPage === 0);
+            document.getElementById('btn-next').disabled = (searchPage >= totalPages - 1);
+
+            pageItems.forEach((item) => {
+                const cleanTitle = item.title.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                resBox.innerHTML += `
+                    <div class="song-item">
+                        <span style="max-width:75%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px;">${item.title}</span>
+                        <button onclick="addSong('${cleanTitle}', '${item.url}')">➕ 加入</button>
+                    </div>
+                `;
+            });
+        }
+
+        function changePage(direction) {
+            searchPage += direction;
+            renderSearchResults();
+        }
+
+        async function addSong(title, url) {
+            playlist.push({ title, url });
+            renderPlaylist();
+            if (playlist.length === 1) { loadSong(0, false); }
+            await fetch('/api/playlist/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(playlist)
+            });
+        }
+
+        async function deleteSong(index) {
+            playlist.splice(index, 1);
+            if (index === currentIndex) {
+                if (playlist.length > 0) loadSong(currentIndex, true);
+                else document.getElementById('current-title').innerText = "⏹️ 目前未播放歌曲";
+            } else if (index < currentIndex) {
+                currentIndex--;
+            }
+            renderPlaylist();
+            await fetch('/api/playlist/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(playlist)
+            });
+        }
+    </script>
+</body>
+</html>

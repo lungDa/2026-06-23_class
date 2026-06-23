@@ -1,1 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>雲端智慧綜合電台</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==">
+    <script src="https://w.soundcloud.com/player/api.js" type="text/javascript"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; background: #f9f9f9; color: #333; display: flex; height: 100vh; }
+        
+        /* 左側固定：常見電台選單 */
+        .sidebar { width: 240px; background: #1e1e24; color: #fff; padding: 20px; box-sizing: border-box; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        .sidebar h3 { margin-top: 0; color: #ff5500; font-size: 18px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .station-btn { width: 100%; text-align: left; background: none; border: none; color: #ccc; padding: 12px 10px; cursor: pointer; border-radius: 4px; font-size: 14px; margin-bottom: 6px; transition: 0.2s; }
+        .station-btn:hover { background: #2a2a35; color: #fff; }
+        
+        /* 右側主畫面區 */
+        .main-content { flex: 1; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        h1, h3 { margin-bottom: 10px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .song-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
+        .playing { font-weight: bold; color: #ff5500; background: #fff5f0; border-radius: 4px; padding: 2px 6px; }
+        .page-ctrl { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; background: #f0f0f0; padding: 10px; border-radius: 4px; }
+        input[type="text"] { width: 70%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 15px; border: none; background: #ff5500; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-del { background: #dc3545; }
+        .btn-play { background: #28a745; margin-right: 5px; }
+        
+        /* 雙播放器切換容器 */
+        .player-container { margin-top: 10px; min-height: 60px; position: relative; }
+        
+        /* 💡 修正手機版自動播放關鍵：不使用 display:none，改用隱形並釋放高度，防止 AudioContext 被手機系統強制銷毀 */
+        .hidden-player {
+            position: absolute !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            height: 0px !important;
+            overflow: hidden !important;
+        }
+        
+        iframe { border: none; width: 100%; height: 130px; transition: opacity 0.3s; }
+        #yt-player { width: 100%; height: 200px; transition: opacity 0.3s; }
+        #stream-player { width: 100%; margin-top: 10px; }
+    </style>
+</head>
+<body>
 
+    <div class="sidebar">
+        <h3>📻 現場即時電台</h3>
+        <button class="station-btn" onclick="playLiveStation('STREAM', 'https://stream.rcs.revma.com/6w709v7ba0uvv')">📻 飛碟電台 (真實官方串流)</button>
+        <button class="station-btn" onclick="playLiveStation('STREAM', 'https://icrt.s01.live-streams.nl/')">📻 ICRT 英文台</button>
+        <button class="station-btn" onclick="playLiveStation('YT', '4xDzrJKXOOY')">🎵 經典西洋老歌 24H</button>
+        <button class="station-btn" onclick="playLiveStation('YT', 'jfKfPfyJRdk')">🎧 Lofi Hip Hop 放鬆音樂</button>
+        <button class="station-btn" onclick="playLiveStation('SC', 'https://api.soundcloud.com/tracks/499311132')">🎹 經典鋼琴電台</button>
+    </div>
+
+    <div class="main-content">
+        <h1>🎧 雲端智慧綜合電台</h1>
+        
+        <div class="card">
+            <h3 id="current-title">⏹️ 目前未播放歌曲</h3>
+            <div class="player-container">
+                <iframe id="sc-widget" class="hidden-player" src="https://w.soundcloud.com/player/?url=https://api.soundcloud.com/tracks/293&auto_play=false" allow="autoplay; encrypted-media"></iframe>
+                <div id="yt-player" class="hidden-player"></div>
+                <audio id="stream-player" class="hidden-player" controls allow="autoplay"></audio>
+            </div>
+            <button id="next-btn" onclick="playNext()" style="width: 100%; margin-top: 10px; background: #6c757d;">⏭️ 手動下一首</button>
+        </div>
+
+        <div class="card">
+            <h3>🎵 搜尋歌曲</h3>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="search-input" placeholder="輸入關鍵字...">
+                <button onclick="searchSongs()">搜尋</button>
+            </div>
+            <div id="search-section" style="display: none; margin-top: 15px;">
+                <h4 id="search-page-title">搜尋結果</h4>
+                <div id="search-results"></div>
+                <div class="page-ctrl">
+                    <button id="btn-prev" onclick="changePage(-1)">⬅️ 上一頁</button>
+                    <span id="page-info">第 1 / 1 頁</span>
+                    <button id="btn-next" onclick="changePage(1)">下一頁 ➡️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📃 待播清單</h3>
+            <div id="playlist-box"></div>
+        </div>
+    </div>
+
+    <script>
+        let playlist = [];
+        let searchResults = [];
+        let currentIndex = 0;
+        let searchPage = 0;
+        const ITEMS_PER_PAGE = 5;
+        
+        let scWidget;
+        let ytPlayer;
+
+        // 初始化 YouTube Iframe API
+        function onYouTubeIframeAPIReady() {
+            ytPlayer = new YT.Player('yt-player', {
+                height: '200',
+                width: '100%',
+                videoId: 'M7lc1UVf-VE', 
+                playerVars: { 
+                    'autoplay': 1, 
+                    'controls': 1, 
+                    'rel': 0,
+                    'enablejsapi': 1,
+                    'origin': window.location.origin // 💡 綁定來源網域
+                },
+                events: {
+                    'onStateChange': onYTPlayerStateChange
+                }
+            });
+        }
+
+        // 監聽 YouTube 播放狀態
+        function onYTPlayerStateChange(event) {
+            if (event.data === YT.PlayerState.ENDED) {
+                playNext();
+            }
+        }
+
+        // 初始化播放器與載入雲端
+        window.onload = function() {
+            const scIframe = document.getElementById('sc-widget');
+            scWidget = SC.Widget(scIframe);
+            
+            scWidget.bind(SC.Widget.Events.READY, function() {
+                scWidget.bind(SC.Widget.Events.FINISH, function() {
+                    playNext();
+                });
+            });
+            
+            loadPlaylist();
+        };
+
+        function playLiveStation(type, urlOrId) {
+            document.getElementById('current-title').innerText = `📻 正在收聽即時廣播電台...`;
+            switchPlayerUI(type);
+            
+            if (type === 'YT') {
+                try {
+                    ytPlayer.loadVideoById(urlOrId);
+                } catch(e) {
+                    alert("YouTube API 載入中，請稍候！");
+                }
+            } else if (type === 'SC') {
+                scWidget.load(urlOrId, { auto_play: true });
+            } else if (type === 'STREAM') {
+                const streamPlayer = document.getElementById('stream-player');
+                streamPlayer.src = urlOrId;
+                streamPlayer.play().catch(e => {
+                    console.log("手機或瀏覽器阻擋自動播放，請手動點擊控制面板。");
+                });
+            }
+        }
+
+        // 核心切換：改用 CSS 類別控制顯示
+        function switchPlayerUI(type) {
+            const scElement = document.getElementById('sc-widget');
+            const ytElement = document.getElementById('yt-player');
+            const streamElement = document.getElementById('stream-player');
+            
+            // 全部先隱形 (但不銷毀)
+            scElement.classList.add('hidden-player');
+            if (ytElement) ytElement.classList.add('hidden-player');
+            streamElement.classList.add('hidden-player');
+            
+            try { ytPlayer.pauseVideo(); } catch(e){}
+            try { scWidget.pause(); } catch(e){}
+            try { streamElement.pause(); } catch(e){}
+            
+            // 亮起特定播放器
+            if (type === 'SC') {
+                scElement.classList.remove('hidden-player');
+            } else if (type === 'YT') {
+                if (ytElement) ytElement.classList.remove('hidden-player');
+            } else if (type === 'STREAM') {
+                streamElement.classList.remove('hidden-player');
+            }
+        }
+
+        async function loadPlaylist() {
+            try {
+                const res = await fetch('/api/playlist');
+                const data = await res.json();
+                if (data && data.error) { alert(data.error); return; }
+                playlist = Array.isArray(data) ? data : [];
+                renderPlaylist();
+                if (playlist.length > 0) {
+                    loadSong(0, false); 
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // 智慧混播路由核心
+        function loadSong(index, shouldPlay = true) {
+            if (playlist.length === 0) return;
+            if (index >= playlist.length) index = 0;
+            if (index < 0) index = playlist.length - 1;
+
+            currentIndex = index;
+            const song = playlist[currentIndex];
+            document.getElementById('current-title').innerText = `▶️ 正在播放: ${song.title}`;
+            renderPlaylist();
+
+            const isYouTube = song.url.includes("youtube.com") || song.url.includes("youtu.be") || !song.url.includes("soundcloud.com");
+            
+            if (isYouTube) {
+                switchPlayerUI('YT');
+                let videoId = "";
+                if (song.url.includes("v=")) {
+                    videoId = song.url.split("v=")[1].split("&")[0];
+                } else {
+                    videoId = song.url.substring(song.url.lastIndexOf("/") + 1);
+                }
+                
+                if (shouldPlay) {
+                    ytPlayer.loadVideoById(videoId);
+                } else {
+                    ytPlayer.cueVideoById(videoId);
+                }
+            } else {
+                switchPlayerUI('SC');
+                scWidget.load(song.url, {
+                    auto_play: shouldPlay,
+                    hide_related: true,
+                    show_comments: false,
+                    show_user: false,
+                    show_reposts: false
+                });
+                // 💡 針對手機端優化：在換曲時主動呼叫 play 戳醒
+                if (shouldPlay) {
+                    setTimeout(() => { scWidget.play(); }, 500);
+                }
+            }
+        }
+
+        function playNext() {
+            if (playlist.length > 0) {
+                let nextIndex = (currentIndex + 1) % playlist.length;
+                loadSong(nextIndex, true); 
+            }
+        }
+
+        function renderPlaylist() {
+            const box = document.getElementById('playlist-box');
+            box.innerHTML = playlist.length === 0 ? "<p style='color:#888;'>清單內尚無歌曲</p>" : "";
+            playlist.forEach((song, i) => {
+                const isPlaying = i === currentIndex;
+                box.innerHTML += `
+                    <div class="song-item">
+                        <span class="${isPlaying ? 'playing' : ''}">${i+1}. ${song.title}</span>
+                        <div>
+                            <button onclick="loadSong(${i}, true)" class="btn-play">點播</button>
+                            <button onclick="deleteSong(${i})" class="btn-del">❌</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        async function searchSongs() {
+            const q = document.getElementById('search-input').value;
+            if (!q) return;
+            const resBox = document.getElementById('search-results');
+            resBox.innerHTML = "<p style='color:#ff5500;'>🔍 正在抓取搜尋結果，請稍候...</p>";
+            document.getElementById('search-section').style.display = "block";
+            try {
+                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                if (data && data.error) { resBox.innerHTML = `<p style='color:red;'>${data.error}</p>`; return; }
+                searchResults = Array.isArray(data) ? data : [];
+                searchPage =
